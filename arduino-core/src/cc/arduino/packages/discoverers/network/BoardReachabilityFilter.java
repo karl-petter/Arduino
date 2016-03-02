@@ -61,7 +61,7 @@ public class BoardReachabilityFilter extends TimerTask {
         InetAddress inetAddress = InetAddress.getByName(board.getAddress());
         int broadcastedPort = Integer.valueOf(board.getPrefs().get("port"));
 
-        List<Integer> ports = new LinkedList<Integer>();
+        List<Integer> ports = new LinkedList<>();
         ports.add(broadcastedPort);
 
         //dirty code: allows non up to date yuns to be discovered. Newer yuns will broadcast port 22
@@ -69,7 +69,7 @@ public class BoardReachabilityFilter extends TimerTask {
           ports.add(0, 22);
         }
 
-        boolean reachable = NetUtils.isReachable(inetAddress, ports);
+        boolean reachable = board.getPrefs().get("tcp_check").contentEquals("no") || NetUtils.isReachable(inetAddress, ports);
         if (!reachable) {
           boardPortIterator.remove();
         }

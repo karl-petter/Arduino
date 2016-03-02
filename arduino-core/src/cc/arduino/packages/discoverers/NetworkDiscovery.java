@@ -33,8 +33,8 @@ import cc.arduino.packages.BoardPort;
 import cc.arduino.packages.Discovery;
 import cc.arduino.packages.discoverers.network.BoardReachabilityFilter;
 import cc.arduino.packages.discoverers.network.NetworkChecker;
+import org.apache.commons.compress.utils.IOUtils;
 import processing.app.BaseNoGui;
-import processing.app.helpers.PreferencesMap;
 import processing.app.zeroconf.jmdns.ArduinoDNSTaskStarter;
 
 import javax.jmdns.*;
@@ -45,6 +45,8 @@ import java.util.*;
 
 public class NetworkDiscovery implements Discovery, ServiceListener, cc.arduino.packages.discoverers.network.NetworkTopologyListener {
 
+  private static final int MAX_TIME_AWAITING_FOR_PACKAGES = 5000;
+
   private final List<BoardPort> boardPortsDiscoveredWithJmDNS;
   private final Map<InetAddress, JmDNS> mappedJmDNSs;
   private Timer networkCheckerTimer;
@@ -53,15 +55,15 @@ public class NetworkDiscovery implements Discovery, ServiceListener, cc.arduino.
 
   public NetworkDiscovery() {
     DNSTaskStarter.Factory.setClassDelegate(new ArduinoDNSTaskStarter());
-    this.boardPortsDiscoveredWithJmDNS = new LinkedList<BoardPort>();
-    this.mappedJmDNSs = new Hashtable<InetAddress, JmDNS>();
-    this.reachableBoardPorts = new LinkedList<BoardPort>();
+    this.boardPortsDiscoveredWithJmDNS = new LinkedList<>();
+    this.mappedJmDNSs = new Hashtable<>();
+    this.reachableBoardPorts = new LinkedList<>();
   }
 
   @Override
   public List<BoardPort> listDiscoveredBoards() {
     synchronized (reachableBoardPorts) {
-      return new LinkedList<BoardPort>(reachableBoardPorts);
+      return new LinkedList<>(reachableBoardPorts);
     }
   }
 
@@ -74,7 +76,7 @@ public class NetworkDiscovery implements Discovery, ServiceListener, cc.arduino.
 
   public List<BoardPort> getBoardPortsDiscoveredWithJmDNS() {
     synchronized (boardPortsDiscoveredWithJmDNS) {
-      return new LinkedList<BoardPort>(boardPortsDiscoveredWithJmDNS);
+      return new LinkedList<>(boardPortsDiscoveredWithJmDNS);
     }
   }
 
@@ -111,44 +113,67 @@ public class NetworkDiscovery implements Discovery, ServiceListener, cc.arduino.
   public void serviceRemoved(ServiceEvent serviceEvent) {
     String name = serviceEvent.getName();
     synchronized (boardPortsDiscoveredWithJmDNS) {
-      for (BoardPort port : boardPortsDiscoveredWithJmDNS) {
-        if (port.getBoardName().equals(name)) {
-          boardPortsDiscoveredWithJmDNS.remove(port);
-        }
-      }
+      boardPortsDiscoveredWithJmDNS.stream().filter(port -> port.getBoardName().equals(name)).forEach(boardPortsDiscoveredWithJmDNS::remove);
     }
   }
 
   @Override
   public void serviceResolved(ServiceEvent serviceEvent) {
+    int sleptFor = 0;
+    while (BaseNoGui.packages == null && sleptFor <= MAX_TIME_AWAITING_FOR_PACKAGES) {
+      try {
+        Thread.sleep(1000);
+        sleptFor += 1000;
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    }
+
     ServiceInfo info = serviceEvent.getInfo();
     for (InetAddress inetAddress : info.getInet4Addresses()) {
       String address = inetAddress.getHostAddress();
       String name = serviceEvent.getName();
 
-      PreferencesMap prefs = null;
+      BoardPort port = new BoardPort();
+
       String board = null;
+      String description = null;
       if (info.hasData()) {
-        prefs = new PreferencesMap();
         board = info.getPropertyString("board");
-        prefs.put("board", board);
-        prefs.put("distro_version", info.getPropertyString("distro_version"));
-        prefs.put("port", "" + info.getPort());
+        description = info.getPropertyString("description");
+        port.getPrefs().put("board", board);
+        port.getPrefs().put("distro_version", info.getPropertyString("distro_version"));
+        port.getPrefs().put("port", "" + info.getPort());
+        
+        //Add additional fields to permit generic ota updates
+        //and make sure we do not intefere with Arduino boards
+        // define "ssh_upload=no" TXT property to use generic uploader
+        // define "tcp_check=no" TXT property if you are not using TCP
+        // define "auth_upload=yes" TXT property if you want to use authenticated generic upload
+        String useSSH = info.getPropertyString("ssh_upload");
+        String checkTCP = info.getPropertyString("tcp_check");
+        String useAuth = info.getPropertyString("auth_upload");
+        if(useSSH == null || !useSSH.contentEquals("no")) useSSH = "yes";
+        if(checkTCP == null || !checkTCP.contentEquals("no")) checkTCP = "yes";
+        if(useAuth == null || !useAuth.contentEquals("yes")) useAuth = "no";
+        port.getPrefs().put("ssh_upload", useSSH);
+        port.getPrefs().put("tcp_check", checkTCP);
+        port.getPrefs().put("auth_upload", useAuth);
       }
 
       String label = name + " at " + address;
-      if (board != null) {
+      if (board != null && BaseNoGui.packages != null) {
         String boardName = BaseNoGui.getPlatform().resolveDeviceByBoardID(BaseNoGui.packages, board);
         if (boardName != null) {
           label += " (" + boardName + ")";
         }
+      } else if (description != null) {
+        label += " (" + description + ")";
       }
 
-      BoardPort port = new BoardPort();
       port.setAddress(address);
       port.setBoardName(name);
       port.setProtocol("network");
-      port.setPrefs(prefs);
       port.setLabel(label);
 
       synchronized (boardPortsDiscoveredWithJmDNS) {
@@ -187,12 +212,6 @@ public class NetworkDiscovery implements Discovery, ServiceListener, cc.arduino.
   @Override
   public void inetAddressRemoved(InetAddress address) {
     JmDNS jmDNS = mappedJmDNSs.remove(address);
-    if (jmDNS != null) {
-      try {
-        jmDNS.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-    }
+    IOUtils.closeQuietly(jmDNS);
   }
 }

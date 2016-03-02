@@ -29,25 +29,25 @@
 
 package cc.arduino.contributions.libraries;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
+import cc.arduino.contributions.DownloadableContributionBuiltInAtTheBottomComparator;
+import cc.arduino.contributions.filters.InstalledPredicate;
+import cc.arduino.contributions.libraries.filters.LibraryWithNamePredicate;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public abstract class LibrariesIndex {
 
   public abstract List<ContributedLibrary> getLibraries();
 
   public List<ContributedLibrary> find(final String name) {
-    return new LinkedList<ContributedLibrary>(Collections2.filter(getLibraries(), new Predicate<ContributedLibrary>() {
-      @Override
-      public boolean apply(ContributedLibrary contributedLibrary) {
-        return name.equals(contributedLibrary.getName());
-      }
-    }));
+    return getLibraries().stream().filter(new LibraryWithNamePredicate(name)).collect(Collectors.toList());
   }
 
   public ContributedLibrary find(String name, String version) {
+    if (name == null || version == null) {
+      return null;
+    }
     for (ContributedLibrary lib : find(name)) {
       if (version.equals(lib.getParsedVersion())) {
         return lib;
@@ -89,5 +89,16 @@ public abstract class LibrariesIndex {
     Collections.sort(types);
 
     return types;
+  }
+
+  public ContributedLibrary getInstalled(String name) {
+    List<ContributedLibrary> installedReleases = find(name).stream().filter(new InstalledPredicate()).collect(Collectors.toList());
+    Collections.sort(installedReleases, new DownloadableContributionBuiltInAtTheBottomComparator());
+
+    if (installedReleases.isEmpty()) {
+      return null;
+    }
+
+    return installedReleases.get(0);
   }
 }

@@ -26,10 +26,19 @@
  * invalidate any other reasons why the executable file might be covered by
  * the GNU General Public License.
  */
+
 package cc.arduino.contributions.packages;
 
+import cc.arduino.contributions.DownloadableContributionBuiltInAtTheBottomComparator;
+import cc.arduino.contributions.filters.DownloadableContributionWithVersionPredicate;
+import cc.arduino.contributions.filters.InstalledPredicate;
+import cc.arduino.contributions.packages.filters.PlatformArchitecturePredicate;
+
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public abstract class ContributionsIndex {
 
@@ -43,15 +52,61 @@ public abstract class ContributionsIndex {
     return null;
   }
 
-  public ContributedTool findTool(String packageName, String name,
-                                  String version) {
-    ContributedPackage pack = findPackage(packageName);
-    if (pack == null)
+  public List<ContributedPlatform> findPlatforms(String packageName, final String platformArch) {
+    if (packageName == null || platformArch == null) {
       return null;
-    return pack.findTool(name, version);
+
+    }
+    ContributedPackage aPackage = findPackage(packageName);
+    if (aPackage == null) {
+      return null;
+    }
+    return aPackage.getPlatforms().stream().filter(new PlatformArchitecturePredicate(platformArch)).collect(Collectors.toList());
   }
 
-  private final List<String> categories = new ArrayList<String>();
+  public ContributedPlatform findPlatform(String packageName, final String platformArch, final String platformVersion) {
+    if (platformVersion == null) {
+      return null;
+
+    }
+
+    Collection<ContributedPlatform> platformsByName = findPlatforms(packageName, platformArch);
+    if (platformsByName == null) {
+      return null;
+    }
+
+    Collection<ContributedPlatform> platforms = platformsByName.stream().filter(new DownloadableContributionWithVersionPredicate(platformVersion)).collect(Collectors.toList());
+    if (platforms.isEmpty()) {
+      return null;
+    }
+
+    return platforms.iterator().next();
+  }
+
+  public List<ContributedPlatform> getInstalledPlatforms() {
+    return getPlatforms().stream().filter(new InstalledPredicate()).collect(Collectors.toList());
+  }
+
+  public ContributedPlatform getInstalledPlatform(String packageName, String platformArch) {
+    List<ContributedPlatform> platforms = findPlatforms(packageName, platformArch);
+    if (platforms == null) {
+      return null;
+    }
+    List<ContributedPlatform> installedPlatforms = platforms.stream().filter(new InstalledPredicate()).collect(Collectors.toList());
+    Collections.sort(installedPlatforms, new DownloadableContributionBuiltInAtTheBottomComparator());
+
+    if (installedPlatforms.isEmpty()) {
+      return null;
+    }
+
+    return installedPlatforms.get(0);
+  }
+
+  private List<ContributedPlatform> getPlatforms() {
+    return getPackages().stream().map(ContributedPackage::getPlatforms).flatMap(Collection::stream).collect(Collectors.toList());
+  }
+
+  private final List<String> categories = new ArrayList<>();
 
   public List<String> getCategories() {
     return categories;
@@ -60,17 +115,18 @@ public abstract class ContributionsIndex {
   public void fillCategories() {
     categories.clear();
     for (ContributedPackage pack : getPackages()) {
-      for (ContributedPlatform platform : pack.getPlatforms()) {
-        if (!categories.contains(platform.getCategory()))
-          categories.add(platform.getCategory());
-      }
+      pack.getPlatforms().stream()
+        .filter(platform -> !categories.contains(platform.getCategory()))
+        .forEach(platform -> categories.add(platform.getCategory()));
     }
   }
 
-  public ContributedPackage getPackage(String packager) {
-    for (ContributedPackage pack : getPackages())
-      if (pack.getName().equals(packager))
+  public ContributedPackage getPackage(String packageName) {
+    for (ContributedPackage pack : getPackages()) {
+      if (pack.getName().equals(packageName)) {
         return pack;
+      }
+    }
     return null;
   }
 
@@ -84,5 +140,9 @@ public abstract class ContributionsIndex {
     for (ContributedPackage pack : getPackages())
       res += pack + "\n";
     return res;
+  }
+
+  public void setTrusted() {
+    getPackages().stream().forEach(pack -> pack.setTrusted(true));
   }
 }

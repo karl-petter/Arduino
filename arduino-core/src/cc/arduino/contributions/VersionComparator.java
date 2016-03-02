@@ -26,6 +26,7 @@
  * invalidate any other reasons why the executable file might be covered by
  * the GNU General Public License.
  */
+
 package cc.arduino.contributions;
 
 import com.github.zafarkhaja.semver.Version;
@@ -33,9 +34,6 @@ import com.github.zafarkhaja.semver.Version;
 import java.util.Comparator;
 
 public class VersionComparator implements Comparator<String> {
-
-  // An handy pre-instatiated object
-  public static final VersionComparator VERSION_COMPARATOR = new VersionComparator();
 
   @Override
   public int compare(String a, String b) {
